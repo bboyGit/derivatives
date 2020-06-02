@@ -1,4 +1,6 @@
 import numpy as np
+from numpy.linalg import solve
+from europe_option_price import european_option_pricing
 
 class american_option_pricing:
     """
@@ -55,16 +57,88 @@ class american_option_pricing:
                         execute_value = max(0, s[j, i] - self.K)
                     else:
                         execute_value = max(0, self.K - s[j, i])
-                    f[j, i] =max(hiden_value, execute_value)                     # 取期权隐含价值和直接行权中更高的那个
+                    f[j, i] = max(hiden_value, execute_value)                     # 取期权隐含价值和直接行权中更高的那个
         f0 = f[0, 0]
         return f0
 
+    def control_variate(self, step_num):
+        """
+        Desc: 基于二叉树的控制变量法假设欧式期权误差与美式期权误差相同
+        :param step_num: 二叉树步数
+        Reference: J.C. Hull and A.White, The use of the control variate technique in option pricing,
+                  Journal of financial and quantitative analysis
+        """
+        # (1) 计算给定参数下基于BS公式和二叉树的欧式期权价格
+        europe_opt_price = european_option_pricing(r=self.r, sigma=self.sigma, T=self.T, K=self.K, s0=self.s0, call=self.call)
+        bs = europe_opt_price.bs_formula()
+        europe_binary_tree = europe_opt_price.binary_tree(step_num=step_num)
+        # (2) 计算给定参数下二叉树的美式期权价格
+        usa_binary_tree = self.binary_tree(step_num=step_num)
+        # (3) 由控制变量技巧计算调整后的美式期权价格
+        usa_price = usa_binary_tree + bs - europe_binary_tree
+        return usa_price
+
+    def finite_difference(self, price_step, time_step, s_max):
+        """
+        Desc: 利用有限差分法计算期权价格
+        :param price_step: 在价格层面上分裂的步数(从0到S_max的间隔数量)
+        :param time_step: 在时间层面上的分裂的步数(从0到T)
+        :param s_max: 设置的最高标的资产价格
+        """
+        # (1) 计算时间delta和价格delta
+        dt = self.T/time_step
+        ds = s_max/price_step
+        # (2) 计算f(i,j-1), f(i,j) and f(i,j+1) where j=0:(price_step-1) 的系数aj, bj and cj
+        p_div = np.arange(0, price_step)                             # 0 至 price_step - 1
+        a = (self.r * p_div - self.sigma**2 * p_div**2) * dt/2       # index 为 0 至 price_step - 1
+        b = 1 + self.r * dt + self.sigma**2 * p_div**2 * dt
+        c = - dt * (self.r * p_div + self.sigma**2 * p_div**2)
+        # (3) 构建x轴为时间y轴为标的资产价格网格
+        s_grid = np.array([[s] * (time_step + 1) for s in np.arange(0, s_max + ds, ds)])
+        f_grid = np.zeros([price_step + 1, time_step + 1])       # 行的index:0 至 price_step ; 列的index: 0 至 time_step
+        # (4) 计算边界条件下的期权价格
+        if self.call:
+            f_grid[:, time_step] = [max(0, df) for df in s_grid[:, time_step] - self.K]  # 到期时的期权价格
+            f_grid[0, :] = 0                                                             # 标的价格等于0时的期权价格
+            f_grid[price_step, :] = s_max - self.K                                       # 标的价格等于最大预设情况时的期权价格
+        else:
+            f_grid[:, time_step] = [max(0, df) for df in self.K - s_grid[:, time_step]]
+            f_grid[0, :] = self.K
+            f_grid[price_step, :] = 0
+        # (5) 迭代地计算从T-1期到0期的期权价格
+        for t in range(time_step-1, -1, -1):
+            y = f_grid[1:-1, t+1].copy()
+            y[0] = y[0] - a[0] * f_grid[0, t+1]
+            y[price_step - 2] = y[price_step - 2] - c[-1] * f_grid[price_step, t+1]
+            x1 = np.array([[b[0], c[0]] + [0] * (price_step - 3)])
+            x2 = np.array([[0]*i + [a[i+1], b[i+1], c[i+1]] + [0]*(price_step - 4 - i) for i in range(price_step-3)])
+            x3 = np.array([[0] * (price_step - 3) + [a[-1], b[-1]]])
+            x = np.concatenate([x1, x2, x3])
+            f_t = solve(x, y)
+            # 与直接行权相比较，看谁的收益更大
+            
+            f_grid[1: price_step, t] = f_t
+        # (6) 获取第0期标的价格等于s0的期权价格既是最终的期权价格
+        f0 = f_grid[:, 0].copy()
+        idx = np.argmin(np.abs(s_grid[:, 0] - self.s0))
+        final_f0 = f0[idx]
+        return final_f0
+
 if __name__=='__main__':
     usa_opt_price = american_option_pricing(r=0.1, sigma=0.4, T=0.4167, K=50, s0=50, call=False)
-    put = []
-    for i in range(2, 50, 3):
-        put_fee = usa_opt_price.binary_tree(step_num=i)
-        put.append(put_fee)
-    put = np.array(put)
-    import matplotlib.pyplot as plt
-    plt.plot(put)
+    # (1) 二叉树美式期权定价
+    # put = []
+    # for i in range(2, 500, 3):
+    #     put_fee = usa_opt_price.binary_tree(step_num=i)
+    #     put.append(put_fee)
+    # put = np.array(put)
+    # import matplotlib.pyplot as plt
+    # plt.plot(put)
+    # (2) 基于控制变量技巧的美式期权定价
+    # put_20 = usa_opt_price.control_variate(step_num=20)
+    # put_32 = usa_opt_price.control_variate(step_num=32)
+    # print('put[-1] - put[7] = {} and put[-1] - put_20 = {}'.format(put[-1] - put[7], put[-1] - put_20))
+    # print('put[-1] - put[10] = {} and put[-1] - put_32 = {}'.format(put[-1] - put[10], put[-1] - put_32))
+    # (3) 基于有限差分法的美式期权定价
+    usa_opt_price.finite_difference(price_step=100, time_step=100, s_max=100)
+    
