@@ -1,6 +1,8 @@
+
 import numpy as np
 from numpy.random import normal
 from scipy.stats import norm
+from numpy.linalg import solve
 
 class european_option_pricing:
     """
@@ -101,12 +103,69 @@ class european_option_pricing:
         f0 = f[0, 0]
         return f0
 
+    def finite_difference(self, price_step, time_step, s_max):
+        """
+        Desc: 利用有限差分法计算期权价格
+        :param price_step: 在价格层面上分裂的步数(从0到S_max的间隔数量)
+        :param time_step: 在时间层面上的分裂的步数(从0到T)
+        :param s_max: 设置的最高标的资产价格
+        """
+        # (1) 构建x轴为时间y轴为标的资产价格网格
+        s = np.linspace(0, s_max, price_step + 1).reshape((price_step + 1, 1))
+        ds = s[1, 0] - s[0, 0]
+        s = np.concatenate([s] * (time_step + 1), axis=1)                 # price_step + 1行 time_step + 1列
+        f = np.zeros([price_step+1, time_step+1])
+        dt = self.T/time_step
+        # (2) 计算f(i-1,j), f(i,j) and f(i+1,j) where i=1:(price_step-1) 的系数ai, bi and ci
+        p_div = np.arange(0, price_step-1)                             # 0 至 price_step - 2
+        a = (self.r * p_div - self.sigma**2 * p_div**2) * dt/2       # index 为 0 至 price_step - 2
+        b = 1 + self.r * dt + self.sigma**2 * p_div**2 * dt
+        c = - dt * (self.r * p_div + self.sigma**2 * p_div**2)/2
+        # (3) 计算边界条件下的期权价格
+        if self.call:
+            f[:, time_step] = [max(0, d) for d in s[:, time_step] - self.K]      # 到期时的期权价格
+            f[0, :] = 0                                                          # 标的价格等于0时的期权价格
+            f[price_step, :] = s_max - self.K                                    # 标的价格等于最大预设情况时的期权价格
+        else:
+            f[:, time_step] = [max(0, d) for d in self.K - s[:, time_step]]
+            f[0, :] = self.K
+            f[price_step, :] = 0
+        # (4) 计算迭代求解中需用到的系数矩阵A
+        x1 = np.array([[b[0], c[0]] + [0] * (price_step - 3)])
+        x2 = [np.array([[0] * (i-1) + [a[i], b[i], c[i]] + [0] * (price_step - 3 - i)]) for i in range(1, price_step - 2)]
+        x2 = np.concatenate(x2)
+        x3 = np.array([[0] * (price_step - 3) + [a[-1], b[-1]]])
+        A = np.concatenate([x1, x2, x3])                                # price_step - 1 行 time_step - 1 列
+        # (5) 迭代地计算从T-1期到0期的期权价格
+        for t in range(time_step-1, -1, -1):
+            y = f[1:-1, t+1].copy()                               # 1-D array
+            y[0] = y[0] - a[0] * f[0, t]
+            y[-1] = y[-1] - c[-1] * f[price_step - 1, t]
+            ft = solve(A, y)                                      # 1-D array
+            f[1:-1, t] = ft.copy()
+        # (6) 获取第0期标的价格等于s0的期权价格既是最终的期权价格
+        f0 = f[:, 0].copy()
+        s0 = s[:, 0].copy()
+        idx = np.argmin(np.abs(s0 - self.s0))
+        # print('数值计算时的s0:', s0[idx])
+        final_f0 = f0[idx]
+        return final_f0
+
+
 if __name__=='__main__':
     europe_opt_price = european_option_pricing(r=0.05, sigma=0.2, T=1, K=10, s0=10, call=True)
     bs_price = europe_opt_price.bs_formula()
-    monte_carlo_price = europe_opt_price.monte_carlo(log=True, path_num=10**6, step_num=1000)
-    binary_tree_price = europe_opt_price.binary_tree(step_num=100)
     print('BS公式下的期权价格：', bs_price)
-    print('蒙特卡洛下的期权价格：', monte_carlo_price)
-    print('二叉树下的期权价格：', binary_tree_price)
-    
+    for num in [10, 100, 1000, 10000, 100000, 500000]:
+        monte_carlo_price = europe_opt_price.monte_carlo(log=True, path_num=num, step_num=100)
+        print('{}条路径下的蒙特卡洛期权定价：'.format(num), monte_carlo_price)
+
+    for num in [10, 50, 100, 500, 1000]:
+        binary_tree_price = europe_opt_price.binary_tree(step_num=num)
+        print('{}步二叉树下的期权价格：'.format(num), binary_tree_price)
+
+    for n in [100, 500, 1000]:
+        fd = europe_opt_price.finite_difference(price_step=n, time_step=n, s_max=50)
+        print('{}步有限差分下的期权价格：'.format(n), fd)
+
+
