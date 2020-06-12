@@ -85,3 +85,29 @@ class Greeks:
         result = 2 * (self.r * self.f - Delta * self.r * self.s0 - Theta)/(self.sigma**2 * self.s0**2)
         return result
 
+    def vega(self):
+        """
+        Desc: 计算给定期权的Vega
+        """
+        if self.option_type == 1:
+            result = self.s0 * np.sqrt(self.T) * norm.pdf(self.d1)
+        elif self.option_type == 2:
+            pass
+        else:
+            raise Exception('目前只支持欧式和美式期权')
+        return result
+
+    def rho(self):
+        """
+        Desc: 计算给定期权的rho(期权对无风险利率求导)
+        """
+        if self.option_type == 1:
+            if self.call:
+                result = self.K * self.T * np.exp(-self.r * self.T) * norm.cdf(self.d2)
+            else:
+                result = -self.K * self.T * np.exp(-self.r * self.T) * norm.cdf(-self.d2)
+        elif self.option_type == 2:
+            pass
+        else:
+            raise Exception('只支持欧式和美式期权')
+        return result
