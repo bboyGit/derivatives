@@ -43,7 +43,7 @@ class implied_vol:
         elif self.option_type == 2:
             usa_opt = american_option_pricing(r=self.r, sigma=up, T=self.T, K=self.K, s0=self.s0,
                                               call=self.call)
-            price_up = usa_opt.binary_tree(step_num=50)
+            price_up = usa_opt.binary_tree(step_num=50)[0][0, 0]
         else:
             raise Exception('only support European option and American option')
         # (2) 递归地利用二分法计算隐含波动率
@@ -60,7 +60,7 @@ class implied_vol:
                     guess_price = europe_opt.bs_formula()
                 elif self.option_type == 2:
                     usa_opt = american_option_pricing(r=self.r, sigma=guess_sigma, T=self.T, K=self.K, s0=self.s0,
-                                                      call=self.call)
+                                                      call=self.call)[0][0, 0]
                     guess_price = usa_opt.binary_tree(step_num=50)
                 else:
                     raise Exception('only support European option and American option')
