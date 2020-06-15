@@ -1,3 +1,4 @@
+
 import numpy as np
 from numpy.linalg import solve
 from europe_option_price import european_option_pricing
@@ -58,8 +59,7 @@ class american_option_pricing:
                     else:
                         execute_value = max(0, self.K - s[j, i])
                     f[j, i] = max(hiden_value, execute_value)                     # 取期权隐含价值和直接行权中更高的那个
-        f0 = f[0, 0]
-        return f0
+        return f, s
 
     def control_variate(self, step_num):
         """
@@ -73,7 +73,7 @@ class american_option_pricing:
         bs = europe_opt_price.bs_formula()
         europe_binary_tree = europe_opt_price.binary_tree(step_num=step_num)
         # (2) 计算给定参数下二叉树的美式期权价格
-        usa_binary_tree = self.binary_tree(step_num=step_num)
+        usa_binary_tree = self.binary_tree(step_num=step_num)[0][0, 0]
         # (3) 由控制变量技巧计算调整后的美式期权价格
         usa_price = usa_binary_tree + bs - europe_binary_tree
         return usa_price
@@ -128,22 +128,36 @@ class american_option_pricing:
         idx = np.argmin(np.abs(s0 - self.s0))
         # print('数值计算时的s0:', s0[idx])
         final_f0 = f0[idx]
-        return final_f0
+        return final_f0, f
 
 if __name__=='__main__':
     usa_opt_price = american_option_pricing(r=0.1, sigma=0.4, T=0.4167, K=50, s0=50, call=True)
     # (1) 二叉树美式期权定价
-    put = []
-    for i in range(2, 500, 3):
-        put_fee = usa_opt_price.binary_tree(step_num=i)
-        put.append(put_fee)
-    put = np.array(put)
+    f = []
+    for i in range(10, 100, 10):
+        f_fee = usa_opt_price.binary_tree(step_num=i)[0][0, 0]
+        f.append(f_fee)
+        print('{}步二叉树下的期权价格'.format(i), f_fee)
+
     import matplotlib.pyplot as plt
-    plt.plot(put)
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 中文显示
+    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+    f = np.array(f)
+    plt.plot(f)
+    plt.xlabel('二叉树步数')
+    plt.ylabel('期权价格')
     # (2) 基于控制变量技巧的美式期权定价
-    put_20 = usa_opt_price.control_variate(step_num=20)
-    put_32 = usa_opt_price.control_variate(step_num=32)
-    print('put[-1] - put[7] = {} and put[-1] - put_20 = {}'.format(put[-1] - put[7], put[-1] - put_20))
-    print('put[-1] - put[10] = {} and put[-1] - put_32 = {}'.format(put[-1] - put[10], put[-1] - put_32))
+    # put_20 = usa_opt_price.control_variate(step_num=20)
+    # put_32 = usa_opt_price.control_variate(step_num=32)
+    # print('put[-1] - put[7] = {} and put[-1] - put_20 = {}'.format(put[-1] - put[7], put[-1] - put_20))
+    # print('put[-1] - put[10] = {} and put[-1] - put_32 = {}'.format(put[-1] - put[10], put[-1] - put_32))
     # (3) 基于有限差分法的美式期权定价
-    fd = usa_opt_price.finite_difference(price_step=500, time_step=500, s_max=100)
+    f1 = []
+    for i in [100, 300, 500, 700, 1000]:
+        fd = usa_opt_price.finite_difference(price_step=i, time_step=i, s_max=100)[0]
+        f1.append(fd)
+        print('分为{}步下有限差分的期权价格'.format(i), fd)
+    plt.plot(f1)
+    plt.xlabel('有限差分步数')
+    plt.ylabel('期权价格')
+
