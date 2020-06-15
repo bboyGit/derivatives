@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from implied_volatility import implied_vol
+from america_option_price import american_option_pricing
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 中文显示
@@ -8,7 +9,7 @@ plt.rcParams['axes.unicode_minus'] = False    # 用来正常显示负号
 
 class Greeks:
     """
-    Desc: 计算欧式和美式期权多头的希腊值
+    Desc: 计算欧式和美式期权多头的希腊值。欧式期权通过解析解计算，美式期权通过二叉树计算。
     """
     def __init__(self, f, s0, K, T, r, call, option_type, sigma):
         """
@@ -41,7 +42,7 @@ class Greeks:
         """
         iv = implied_vol(f=self.f, s0=self.s0, K=self.K, r=self.r, T=self.T, option_type=self.option_type,
                          call=self.call, max_iter=10**3)
-        sigma = iv.bisection(low=0, up=1, threshold=0.001)
+        sigma = iv.bisection(low=0, up=1, threshold=0.001)['implied_sigma']
         return sigma
 
     def delta(self):
@@ -54,7 +55,10 @@ class Greeks:
             else:
                 result = norm.cdf(self.d1) - 1
         elif self.option_type == 2:
-            pass
+            usa_opt_price = american_option_pricing(r=self.r, sigma=self.sigma, T=self.T, K=self.K,
+                                                    s0=self.s0, call=self.call)
+            f, s = usa_opt_price.binary_tree(step_num=100)
+            result = (f[1, 0] - f[1, 1])/(s[1, 0] - s[1, 1])
         else:
             raise Exception('目前只支持欧式和美式')
         return result
@@ -71,7 +75,10 @@ class Greeks:
                 result = self.r * self.K * np.exp(-self.r * self.T) * norm.cdf(-self.d2) - \
                          self.s0 * norm.pdf(self.d1) * self.sigma / (2 * np.sqrt(self.T))
         elif self.option_type == 2:
-            pass
+            usa_opt_price = american_option_pricing(r=self.r, sigma=self.sigma, T=self.T, K=self.K,
+                                                    s0=self.s0, call=self.call)
+            f, s = usa_opt_price.binary_tree(step_num=100)
+            result = (f[1, 2] - f[0, 0])/(2 * self.T/100)
         else:
             raise Exception('目前只支持欧式和美式')
         return result
@@ -92,7 +99,11 @@ class Greeks:
         if self.option_type == 1:
             result = self.s0 * np.sqrt(self.T) * norm.pdf(self.d1)
         elif self.option_type == 2:
-            pass
+            usa_opt_price = american_option_pricing(r=self.r, sigma=self.sigma * 1.01, T=self.T,
+                                                    K=self.K, s0=self.s0, call=self.call)
+            f, s = usa_opt_price.binary_tree(step_num=100)
+            f1 = f[0, 0]
+            result = (self.f - f1)/(self.sigma * 0.01)
         else:
             raise Exception('目前只支持欧式和美式期权')
         return result
@@ -107,7 +118,20 @@ class Greeks:
             else:
                 result = -self.K * self.T * np.exp(-self.r * self.T) * norm.cdf(-self.d2)
         elif self.option_type == 2:
-            pass
+            usa_opt_price = american_option_pricing(r=self.r * 1.01, sigma=self.sigma, T=self.T,
+                                                    K=self.K, s0=self.s0, call=self.call)
+            f, s = usa_opt_price.binary_tree(step_num=100)
+            f1 = f[0, 0]
+            result = (f1 - self.f)/(self.r * 0.01)
         else:
             raise Exception('只支持欧式和美式期权')
         return result
+
+
+if __name__=='__main__':
+    greek = Greeks(f=0.1376, s0=4.04, K=3.9, T=14/360, r=2.0291/100, call=True, option_type=1, sigma=None)
+    print('Delta:', greek.delta())
+    print('Gamma:', greek.gamma())
+    print('Theta:', greek.theta())
+    print('Vega:', greek.vega())
+    print('Rho:', greek.rho())
